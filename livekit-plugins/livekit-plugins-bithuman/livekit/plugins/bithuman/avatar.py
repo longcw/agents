@@ -11,7 +11,7 @@ import aiohttp
 import cv2
 import numpy as np
 from loguru import logger as _logger
-from PIL.Image import Image
+from PIL import Image
 
 from livekit import api, rtc
 from livekit.agents import (
@@ -64,7 +64,7 @@ class AvatarSession:
         api_token: NotGivenOr[str] = NOT_GIVEN,
         model_path: NotGivenOr[str | None] = NOT_GIVEN,
         runtime: NotGivenOr[AsyncBithuman | None] = NOT_GIVEN,
-        avatar_image: NotGivenOr[Image | str] = NOT_GIVEN,
+        avatar_image: NotGivenOr[Image.Image | str] = NOT_GIVEN,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
         avatar_participant_identity: NotGivenOr[str] = NOT_GIVEN,
         avatar_participant_name: NotGivenOr[str] = NOT_GIVEN,
@@ -99,8 +99,8 @@ class AvatarSession:
             if self._api_url is None:
                 raise BitHumanException("BITHUMAN_API_URL are required for cloud mode")
 
-        self._avatar_image: Image | str | None = None
-        if isinstance(avatar_image, Image):
+        self._avatar_image: Image.Image | str | None = None
+        if isinstance(avatar_image, Image.Image):
             self._avatar_image = avatar_image
         elif isinstance(avatar_image, str):
             if os.path.exists(avatar_image):
@@ -138,7 +138,7 @@ class AvatarSession:
             raise BitHumanException(f"Invalid mode: {self._mode}")
 
     async def _start_local(self, agent_session: AgentSession, room: rtc.Room) -> None:
-        from bithuman import AsyncBithuman  # type: ignore
+        from bithuman import AsyncBithuman
 
         if self._runtime:
             runtime = self._runtime
@@ -245,7 +245,7 @@ class AvatarSession:
             }
         )
 
-        if isinstance(self._avatar_image, Image):
+        if isinstance(self._avatar_image, Image.Image):
             img_byte_arr = io.BytesIO()
             self._avatar_image.save(img_byte_arr, format="JPEG", quality=95)
             img_byte_arr.seek(0)
