@@ -5,7 +5,7 @@ import io
 import os
 import sys
 from collections.abc import AsyncGenerator, AsyncIterator
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
 
 import aiohttp
 import cv2
@@ -13,7 +13,6 @@ import numpy as np
 from loguru import logger as _logger
 from PIL.Image import Image
 
-from bithuman import AsyncBithuman  # type: ignore
 from livekit import api, rtc
 from livekit.agents import (
     DEFAULT_API_CONNECT_OPTIONS,
@@ -37,6 +36,9 @@ from livekit.agents.voice.avatar import (
 )
 
 from .log import logger
+
+if TYPE_CHECKING:
+    from bithuman import AsyncBithuman  # type: ignore
 
 _logger.remove()
 _logger.add(sys.stdout, level="INFO")
@@ -127,6 +129,8 @@ class AvatarSession:
             raise BitHumanException(f"Invalid mode: {self._mode}")
 
     async def _start_local(self, agent_session: AgentSession, room: rtc.Room) -> None:
+        from bithuman import AsyncBithuman  # type: ignore
+
         if self._runtime:
             runtime = self._runtime
             await runtime._initialize_token()  # refresh the token
