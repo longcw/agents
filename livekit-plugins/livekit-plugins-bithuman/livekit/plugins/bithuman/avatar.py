@@ -64,7 +64,7 @@ class AvatarSession:
         api_token: NotGivenOr[str] = NOT_GIVEN,
         model_path: NotGivenOr[str | None] = NOT_GIVEN,
         runtime: NotGivenOr[AsyncBithuman | None] = NOT_GIVEN,
-        avatar_image: NotGivenOr[Image] = NOT_GIVEN,
+        avatar_image: NotGivenOr[Image | str] = NOT_GIVEN,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
         avatar_participant_identity: NotGivenOr[str] = NOT_GIVEN,
         avatar_participant_name: NotGivenOr[str] = NOT_GIVEN,
@@ -99,7 +99,16 @@ class AvatarSession:
             if self._api_url is None:
                 raise BitHumanException("BITHUMAN_API_URL are required for cloud mode")
 
-        self._avatar_image = avatar_image
+        self._avatar_image: Image | str | None = None
+        if isinstance(avatar_image, Image):
+            self._avatar_image = avatar_image
+        elif isinstance(avatar_image, str):
+            if os.path.exists(avatar_image):
+                self._avatar_image = Image.open(avatar_image)
+            elif avatar_image.startswith("http"):
+                self._avatar_image = avatar_image
+            else:
+                raise BitHumanException(f"Invalid avatar image: {avatar_image}")
 
         self._conn_options = conn_options
         self._http_session: aiohttp.ClientSession | None = None
@@ -236,13 +245,15 @@ class AvatarSession:
             }
         )
 
-        if self._avatar_image:
+        if isinstance(self._avatar_image, Image):
             img_byte_arr = io.BytesIO()
             self._avatar_image.save(img_byte_arr, format="JPEG", quality=95)
             img_byte_arr.seek(0)
             data.add_field(
                 "avatar_image", img_byte_arr, filename="avatar.jpg", content_type="image/jpeg"
             )
+        elif isinstance(self._avatar_image, str):
+            data.add_field("avatar_image_url", self._avatar_image)
 
         for i in range(self._conn_options.max_retry):
             try:
