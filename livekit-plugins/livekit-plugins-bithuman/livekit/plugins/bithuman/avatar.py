@@ -5,7 +5,7 @@ import io
 import os
 import sys
 from collections.abc import AsyncGenerator, AsyncIterator
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import aiohttp
 import cv2
@@ -274,14 +274,14 @@ class AvatarSession:
 
             except Exception as e:
                 if isinstance(e, APIConnectionError):
-                    logger.warning("failed to call hedra avatar api", extra={"error": str(e)})
+                    logger.warning("failed to call bithuman avatar api", extra={"error": str(e)})
                 else:
-                    logger.exception("failed to call hedra avatar api")
+                    logger.exception("failed to call bithuman avatar api")
 
                 if i < self._conn_options.max_retry - 1:
                     await asyncio.sleep(self._conn_options.retry_interval)
 
-        raise APIConnectionError("Failed to start Hedra Avatar Session after all retries")
+        raise APIConnectionError("Failed to start Bithuman Avatar Session after all retries")
 
     def _ensure_http_session(self) -> aiohttp.ClientSession:
         if self._http_session is None:
