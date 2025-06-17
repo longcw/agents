@@ -65,6 +65,7 @@ class AvatarSession:
         model_path: NotGivenOr[str | None] = NOT_GIVEN,
         runtime: NotGivenOr[AsyncBithuman | None] = NOT_GIVEN,
         avatar_image: NotGivenOr[Image.Image | str] = NOT_GIVEN,
+        avatar_id: NotGivenOr[str] = NOT_GIVEN,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
         avatar_participant_identity: NotGivenOr[str] = NOT_GIVEN,
         avatar_participant_name: NotGivenOr[str] = NOT_GIVEN,
@@ -73,6 +74,7 @@ class AvatarSession:
         self._api_secret = api_secret or os.getenv("BITHUMAN_API_SECRET")
         self._api_token = api_token or os.getenv("BITHUMAN_API_TOKEN")
         self._model_path = model_path or os.getenv("BITHUMAN_MODEL_PATH")
+        self._avatar_id = avatar_id
         self._avatar_participant_identity = avatar_participant_identity or _AVATAR_AGENT_IDENTITY
         self._avatar_participant_name = avatar_participant_name or _AVATAR_AGENT_NAME
 
@@ -92,8 +94,8 @@ class AvatarSession:
                     "BITHUMAN_API_SECRET or BITHUMAN_API_TOKEN are required for local mode"
                 )
         elif self._mode == "cloud":
-            if not utils.is_given(avatar_image):
-                raise BitHumanException("`avatar_image` must be set for cloud mode")
+            if not utils.is_given(avatar_image) and not utils.is_given(avatar_id):
+                raise BitHumanException("`avatar_image` or `avatar_id` must be set for cloud mode")
             if self._api_secret is None:
                 raise BitHumanException("BITHUMAN_API_SECRET are required for cloud mode")
             if self._api_url is None:
@@ -254,6 +256,9 @@ class AvatarSession:
             )
         elif isinstance(self._avatar_image, str):
             data.add_field("avatar_image_url", self._avatar_image)
+
+        if utils.is_given(self._avatar_id):
+            data.add_field("avatar_id", self._avatar_id)
 
         for i in range(self._conn_options.max_retry):
             try:
