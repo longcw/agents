@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import os
+import platform
+import socket
 import sys
+import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import TYPE_CHECKING, Literal
 
@@ -48,6 +52,88 @@ _AVATAR_AGENT_IDENTITY = "bithuman-avatar-agent"
 _AVATAR_AGENT_NAME = "bithuman-avatar-agent"
 
 
+def generate_hardware_fingerprint() -> str:
+    """Generate a hardware fingerprint similar to the C++ implementation."""
+    fingerprint_parts = []
+    
+    # Get hostname
+    try:
+        hostname = socket.gethostname()
+        fingerprint_parts.append(hostname)
+    except Exception:
+        fingerprint_parts.append("unknown-host")
+    
+    # Platform-specific hardware identifiers
+    system = platform.system()
+    
+    if system == "Darwin":  # macOS
+        try:
+            # Try to get hardware UUID from system_profiler
+            import subprocess
+            result = subprocess.run(
+                ["system_profiler", "SPHardwareDataType"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if "Hardware UUID" in line:
+                        uuid = line.split(":")[-1].strip()
+                        fingerprint_parts.append(uuid)
+                        break
+        except Exception:
+            # Fallback to machine info
+            fingerprint_parts.append(platform.machine())
+            
+    elif system == "Windows":
+        try:
+            # Try to get machine GUID from registry
+            import subprocess
+            result = subprocess.run(
+                ["wmic", "csproduct", "get", "UUID"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                if len(lines) > 1:
+                    uuid = lines[1].strip()
+                    fingerprint_parts.append(uuid)
+        except Exception:
+            # Fallback to machine info
+            fingerprint_parts.append(platform.machine())
+            
+    elif system == "Linux":
+        try:
+            # Try to read machine-id
+            with open("/etc/machine-id", "r") as f:
+                machine_id = f.read().strip()
+                fingerprint_parts.append(machine_id)
+        except Exception:
+            try:
+                # Fallback to /var/lib/dbus/machine-id
+                with open("/var/lib/dbus/machine-id", "r") as f:
+                    machine_id = f.read().strip()
+                    fingerprint_parts.append(machine_id)
+            except Exception:
+                # Final fallback
+                fingerprint_parts.append(platform.machine())
+    
+    # Add timestamp for uniqueness (minute precision)
+    timestamp = time.strftime("%Y%m%d%H%M", time.localtime())
+    fingerprint_parts.append(timestamp)
+    
+    # Join all parts
+    raw_fingerprint = "-".join(fingerprint_parts)
+    
+    # Hash to create consistent format (32 characters)
+    hashed = hashlib.md5(raw_fingerprint.encode('utf-8')).hexdigest()
+    
+    return hashed
+
+
 class BitHumanException(Exception):
     """Exception for BitHuman errors"""
 
@@ -58,7 +144,7 @@ class AvatarSession:
     def __init__(
         self,
         *,
-        mode: NotGivenOr[Literal["local", "cloud"]] = NOT_GIVEN,
+        mode: NotGivenOr[Literal["local", "cloud_gpu", "cloud_cpu", "cloud"]] = "local",
         api_url: NotGivenOr[str] = NOT_GIVEN,
         api_secret: NotGivenOr[str] = NOT_GIVEN,
         api_token: NotGivenOr[str] = NOT_GIVEN,
@@ -78,6 +164,8 @@ class AvatarSession:
         self._avatar_participant_identity = avatar_participant_identity or _AVATAR_AGENT_IDENTITY
         self._avatar_participant_name = avatar_participant_name or _AVATAR_AGENT_NAME
 
+        self.__fingerprint = generate_hardware_fingerprint()
+
         # set default mode based on avatar image presence
         self._mode = (
             mode if utils.is_given(mode) else "cloud" if utils.is_given(avatar_image) else "local"
@@ -93,7 +181,7 @@ class AvatarSession:
                 raise BitHumanException(
                     "BITHUMAN_API_SECRET or BITHUMAN_API_TOKEN are required for local mode"
                 )
-        elif self._mode == "cloud":
+        elif self._mode == "cloud_gpu" or self._mode == "cloud_cpu" or self._mode == "cloud":
             if not utils.is_given(avatar_image) and not utils.is_given(avatar_id):
                 raise BitHumanException("`avatar_image` or `avatar_id` must be set for cloud mode")
             if self._api_secret is None:
@@ -128,7 +216,7 @@ class AvatarSession:
     ) -> None:
         if self._mode == "local":
             await self._start_local(agent_session, room)
-        elif self._mode == "cloud":
+        elif self._mode == "cloud_gpu" or self._mode == "cloud_cpu" or self._mode == "cloud":
             await self._start_cloud(
                 agent_session,
                 room,
@@ -239,35 +327,39 @@ class AvatarSession:
         assert self._api_url is not None, "api_url is not set"
         assert self._api_secret is not None, "api_secret is not set"
 
-        data = aiohttp.FormData(
-            {
-                "livekit_url": livekit_url,
-                "livekit_token": livekit_token,
-                "room_name": room_name,
-            }
-        )
+        # Prepare JSON data
+        json_data = {
+            "livekit_url": livekit_url,
+            "livekit_token": livekit_token,
+            "room_name": room_name,
+            "fingerprint": self.__fingerprint,
+            "mode": "gpu" if self._mode == 'cloud_gpu' else "cpu",
+        }
 
+        # Handle avatar image
         if isinstance(self._avatar_image, Image.Image):
             img_byte_arr = io.BytesIO()
             self._avatar_image.save(img_byte_arr, format="JPEG", quality=95)
             img_byte_arr.seek(0)
-            data.add_field(
-                "avatar_image", img_byte_arr, filename="avatar.jpg", content_type="image/jpeg"
-            )
+            # Convert image to base64 string for JSON
+            import base64
+            img_base64 = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
+            json_data["image"] = img_base64
         elif isinstance(self._avatar_image, str):
-            data.add_field("avatar_image_url", self._avatar_image)
+            json_data["image"] = self._avatar_image
 
         if utils.is_given(self._avatar_id):
-            data.add_field("avatar_id", self._avatar_id)
+            json_data["agent_id"] = self._avatar_id
 
         for i in range(self._conn_options.max_retry):
             try:
                 async with self._ensure_http_session().post(
                     self._api_url,
                     headers={
-                        "Authorization": f"Bearer {self._api_secret}",
+                        "Content-Type": "application/json",
+                        "api-secret": self._api_secret,
                     },
-                    data=data,
+                    json=json_data,
                     timeout=aiohttp.ClientTimeout(sock_connect=self._conn_options.timeout),
                 ) as response:
                     if not response.ok:
